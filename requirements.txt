@@ -1,0 +1,14 @@
+# --- Core ---
+python-dotenv==1.0.1        # .env loading
+requests==2.32.3            # HTTP calls to discovery/ATS sources
+
+# --- Storage ---
+gspread==6.2.1                # Google Sheets export
+google-auth==2.35.0          # Service account auth for gspread
+
+# --- Filtering (added in Milestone 3) ---
+rapidfuzz==3.14.5             # Fuzzy job-title matching
+
+# --- Dev / Testing ---
+pytest==8.3.3
+pytest-mock==3.14.0
