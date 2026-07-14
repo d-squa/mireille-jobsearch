@@ -1,0 +1,58 @@
+name: Reset Export Status
+
+# Manual-only (no schedule). Run this after clearing rows from the
+# Google Sheet by hand, so the leads already sitting in the database
+# get re-sent on the next Daily Lead Discovery Run. This workflow only
+# touches the database - it doesn't talk to Google Sheets at all, so
+# GOOGLE_SHEET_ID is deliberately left unset in its .env.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write  # required to commit the updated database back to the repo
+
+jobs:
+  reset-export-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write .env
+        run: |
+          cp config/pipeline.env .env
+          cat >> .env << EOF
+          JOOBLE_API_KEY=${{ secrets.JOOBLE_API_KEY }}
+          ADZUNA_APP_ID=${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY=${{ secrets.ADZUNA_APP_KEY }}
+          REED_API_KEY=${{ secrets.REED_API_KEY }}
+          GOOGLE_SHEET_ID=
+          EOF
+
+      - name: Reset export status
+        run: python scripts/reset_export_status.py
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/lead_discovery.db
+          if git diff --staged --quiet; then
+            echo "No database changes to commit."
+            exit 0
+          fi
+          git commit -m "Reset lead export status [automated]"
+          if git pull --rebase origin main; then
+            git push
+          else
+            git rebase --abort
+            echo "::warning::Could not reconcile with remote after rebase conflict - skipping DB commit this run. Will retry next run."
+          fi
