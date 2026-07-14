@@ -1,0 +1,83 @@
+name: Daily Lead Discovery Run
+
+# Runs once a day on GitHub's infrastructure - no local machine, no
+# admin rights, no always-on server needed. Also runnable manually
+# from the Actions tab (workflow_dispatch) to test without waiting
+# for the schedule.
+on:
+  schedule:
+    # 06:00 UTC daily. GitHub Actions cron is always UTC - adjust the
+    # hour to whatever local time works for you.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write  # required to commit the updated database back to the repo
+
+jobs:
+  run-lead-discovery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write Google service account credentials
+        run: |
+          mkdir -p credentials
+          printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > credentials/service_account.json
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+
+      - name: Write .env
+        run: |
+          cp config/pipeline.env .env
+          cat >> .env << EOF
+          JOOBLE_API_KEY=${{ secrets.JOOBLE_API_KEY }}
+          ADZUNA_APP_ID=${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY=${{ secrets.ADZUNA_APP_KEY }}
+          REED_API_KEY=${{ secrets.REED_API_KEY }}
+          GOOGLE_SHEET_ID=${{ secrets.GOOGLE_SHEET_ID }}
+          EOF
+
+      - name: Run lead discovery
+        run: python main.py
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/lead_discovery.db
+          if git diff --staged --quiet; then
+            echo "No database changes to commit."
+            exit 0
+          fi
+          git commit -m "Update lead database [automated]"
+
+          # Reconcile with the remote before pushing - something else
+          # (a manual edit, another workflow run) may have landed on
+          # main while this run was executing, which would otherwise
+          # cause a non-fast-forward push rejection. Retries a few
+          # times to also cover the rare case where another push lands
+          # in the narrow window between the rebase and this push.
+          attempt=1
+          max_attempts=5
+          while [ "$attempt" -le "$max_attempts" ]; do
+            if git pull --rebase origin main && git push; then
+              echo "Database push succeeded on attempt $attempt."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed, retrying..."
+            git rebase --abort 2>/dev/null || true
+            attempt=$((attempt + 1))
+            sleep 3
+          done
+
+          echo "::warning::Could not push database update after $max_attempts attempts - skipping DB commit this run. Will retry next run."
