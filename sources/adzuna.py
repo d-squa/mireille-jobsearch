@@ -54,6 +54,19 @@ _COUNTRY_NAMES = {
     "in": "India",
 }
 
+# Countries confirmed (via repeated live 404s, plus cross-checking
+# several independent third-party sources describing Adzuna's country
+# coverage) to never be supported. Deliberately a small, high-confidence
+# BLOCKLIST rather than a big "known good" ALLOWLIST - sources disagree
+# on Adzuna's exact total country count (seen figures from 12 to 19),
+# so hardcoding a full allowlist risks wrongly excluding a country that
+# actually works. This list only contains countries no source has ever
+# listed as supported: the GCC/Gulf market. Skipping these before
+# attempting a request avoids wasting the retry/backoff delay in
+# http_utils on a request that will never succeed - each unsupported
+# (term, country) pair was costing up to ~6s in retries before this.
+_KNOWN_UNSUPPORTED_COUNTRIES = frozenset({"ae", "sa", "kw", "lb", "qa", "bh", "om"})
+
 
 class AdzunaSource(JobSource):
     """Discovery source backed by the Adzuna job search API."""
@@ -70,16 +83,29 @@ class AdzunaSource(JobSource):
     def fetch_jobs(self, search_terms: tuple[str, ...], countries: tuple[str, ...]) -> list[Job]:
         """Fetch jobs for every (search_term, country) combination.
 
-        A country Adzuna doesn't support is logged and skipped, not
-        fatal to the whole fetch - see module docstring for why this
-        isolation matters specifically for Adzuna.
+        Countries in _KNOWN_UNSUPPORTED_COUNTRIES are skipped before
+        any request is attempted - see that constant's docstring for
+        why. Any OTHER unsupported country (one we haven't hardcoded)
+        still gets a real attempt and is caught per-pair if it 404s -
+        the blocklist is a fast-path optimization, not the only safety
+        net.
         """
         if not countries:
             logger.warning("AdzunaSource requires at least one country; defaulting to 'gb'")
             countries = ("gb",)
 
+        skipped = tuple(c for c in countries if c in _KNOWN_UNSUPPORTED_COUNTRIES)
+        supported = tuple(c for c in countries if c not in _KNOWN_UNSUPPORTED_COUNTRIES)
+        if skipped:
+            logger.info(
+                "Adzuna: skipping known-unsupported countries (no Gulf/MENA coverage): %s",
+                ", ".join(skipped),
+            )
+        if not supported:
+            return []
+
         jobs: list[Job] = []
-        for country in countries:
+        for country in supported:
             for term in search_terms:
                 try:
                     raw_jobs = self._search(term, country)

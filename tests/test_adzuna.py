@@ -123,17 +123,53 @@ class TestSalaryFormatting:
         assert jobs[0].salary == "40,000 - 48,000"
 
 
+class TestKnownUnsupportedCountryBlocklist:
+    def test_blocklisted_country_never_makes_a_request(self) -> None:
+        session = MagicMock()
+        session.request.return_value = _mock_response(VALID_RESPONSE)
+        source = AdzunaSource(app_id="id", app_key="key", session=session)
+
+        source.fetch_jobs(search_terms=("paid media",), countries=("ae",))
+
+        session.request.assert_not_called()
+
+    def test_mixing_blocklisted_and_supported_only_requests_supported(self) -> None:
+        session = MagicMock()
+        session.request.return_value = _mock_response(VALID_RESPONSE)
+        source = AdzunaSource(app_id="id", app_key="key", session=session)
+
+        jobs = source.fetch_jobs(search_terms=("paid media",), countries=("ae", "gb", "sa"))
+
+        assert session.request.call_count == 1  # only gb, both ae and sa skipped
+        assert len(jobs) == 2
+        assert all(job.country == "United Kingdom" for job in jobs)
+
+    def test_all_gulf_countries_blocklisted_returns_empty_with_zero_requests(self) -> None:
+        session = MagicMock()
+        source = AdzunaSource(app_id="id", app_key="key", session=session)
+
+        jobs = source.fetch_jobs(
+            search_terms=("paid media",), countries=("ae", "sa", "kw", "lb", "qa", "bh", "om")
+        )
+
+        assert jobs == []
+        session.request.assert_not_called()
+
+
 class TestUnsupportedCountryIsolation:
-    def test_one_unsupported_country_does_not_block_others(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_unexpected_404_on_a_non_blocklisted_country_does_not_block_others(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Tests the remaining safety net: a country NOT in the
+        # blocklist (so a real request is attempted) that still 404s
+        # for some other reason must not lose results from countries
+        # that do work. Uses a fake code ("zz") rather than "ae" since
+        # "ae" is now skipped before any request happens at all - this
+        # test needs a request to actually occur and fail.
         monkeypatch.setattr("sources.http_utils.time.sleep", lambda _: None)
-        # This is the core design requirement for this connector:
-        # Adzuna's country is a validated URL path segment (unlike
-        # Jooble's free-text location), so an unsupported code like
-        # "ae" (Adzuna has no Gulf coverage - confirmed during
-        # Milestone 2 research) produces a real 404. That must not
-        # lose results from countries that do work.
+
         def request_side_effect(method, url, **kwargs):
-            if "/ae/" in url:
+            if "/zz/" in url:
                 return _mock_response({}, status_code=404)
             return _mock_response(VALID_RESPONSE)
 
@@ -141,19 +177,21 @@ class TestUnsupportedCountryIsolation:
         session.request.side_effect = request_side_effect
         source = AdzunaSource(app_id="id", app_key="key", session=session)
 
-        jobs = source.fetch_jobs(search_terms=("paid media",), countries=("ae", "gb"))
+        jobs = source.fetch_jobs(search_terms=("paid media",), countries=("zz", "gb"))
 
-        # gb results still came through despite ae failing
+        # gb results still came through despite zz failing
         assert len(jobs) == 2
         assert all(job.country == "United Kingdom" for job in jobs)
 
-    def test_all_countries_unsupported_returns_empty_list_not_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_all_countries_failing_returns_empty_list_not_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr("sources.http_utils.time.sleep", lambda _: None)
         session = MagicMock()
         session.request.return_value = _mock_response({}, status_code=404)
         source = AdzunaSource(app_id="id", app_key="key", session=session)
 
-        jobs = source.fetch_jobs(search_terms=("paid media",), countries=("ae", "sa"))
+        jobs = source.fetch_jobs(search_terms=("paid media",), countries=("zz", "yy"))
 
         assert jobs == []
 
