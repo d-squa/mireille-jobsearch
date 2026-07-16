@@ -66,6 +66,9 @@ class Settings:
     # ATS direct sources (optional)
     ats_watchlist_file: Path | None
 
+    # Country exclusions (optional)
+    country_exclusions_file: Path | None
+
     # Scoring
     min_score: int
 
@@ -154,6 +157,16 @@ def _load_settings(env_file: str | None = None) -> Settings:
                 f"Leave it blank to skip ATS-direct sources, or fix the path."
             )
 
+    country_exclusions_raw = env.get("COUNTRY_EXCLUSIONS_FILE", "").strip()
+    country_exclusions_file: Path | None = None
+    if country_exclusions_raw:
+        country_exclusions_file = Path(country_exclusions_raw)
+        if not country_exclusions_file.exists():
+            raise ConfigError(
+                f"COUNTRY_EXCLUSIONS_FILE is set but does not exist: {country_exclusions_file}. "
+                f"Leave it blank to exclude nothing, or fix the path."
+            )
+
     try:
         min_score = int(env.get("MIN_SCORE", "").strip())
     except ValueError as exc:
@@ -195,6 +208,7 @@ def _load_settings(env_file: str | None = None) -> Settings:
         title_scores_file=title_scores_file,
         fuzzy_match_threshold=fuzzy_match_threshold,
         ats_watchlist_file=ats_watchlist_file,
+        country_exclusions_file=country_exclusions_file,
         min_score=min_score,
         database_path=database_path,
         google_sheet_id=google_sheet_id,

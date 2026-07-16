@@ -122,21 +122,56 @@ class TestSalaryFormatting:
 
         assert jobs[0].salary == "40,000 - 48,000"
 
+    def test_work_mode_inferred_from_description(self) -> None:
+        response = {
+            "results": [
+                {
+                    "id": "1",
+                    "title": "Paid Media Manager",
+                    "company": {"display_name": "Acme Co"},
+                    "location": {"display_name": "London"},
+                    "created": "2026-07-01T00:00:00Z",
+                    "redirect_url": "https://example.com/1",
+                    "description": "This is a fully remote role, work from anywhere in the UK.",
+                }
+            ]
+        }
+        session = MagicMock()
+        session.request.return_value = _mock_response(response)
+        source = AdzunaSource(app_id="id", app_key="key", session=session)
 
-class TestKnownUnsupportedCountryBlocklist:
-    def test_blocklisted_country_never_makes_a_request(self) -> None:
+        jobs = source.fetch_jobs(search_terms=("paid media",), countries=("gb",))
+
+        assert jobs[0].work_mode == "Remote"
+
+    def test_work_mode_none_when_no_keyword_present(self) -> None:
         session = MagicMock()
         session.request.return_value = _mock_response(VALID_RESPONSE)
         source = AdzunaSource(app_id="id", app_key="key", session=session)
+
+        jobs = source.fetch_jobs(search_terms=("paid media",), countries=("gb",))
+
+        assert jobs[0].work_mode is None
+
+
+class TestCountryExclusions:
+    def test_excluded_country_never_makes_a_request(self) -> None:
+        session = MagicMock()
+        session.request.return_value = _mock_response(VALID_RESPONSE)
+        source = AdzunaSource(
+            app_id="id", app_key="key", exclude_countries=("ae",), session=session
+        )
 
         source.fetch_jobs(search_terms=("paid media",), countries=("ae",))
 
         session.request.assert_not_called()
 
-    def test_mixing_blocklisted_and_supported_only_requests_supported(self) -> None:
+    def test_mixing_excluded_and_supported_only_requests_supported(self) -> None:
         session = MagicMock()
         session.request.return_value = _mock_response(VALID_RESPONSE)
-        source = AdzunaSource(app_id="id", app_key="key", session=session)
+        source = AdzunaSource(
+            app_id="id", app_key="key", exclude_countries=("ae", "sa"), session=session
+        )
 
         jobs = source.fetch_jobs(search_terms=("paid media",), countries=("ae", "gb", "sa"))
 
@@ -144,15 +179,44 @@ class TestKnownUnsupportedCountryBlocklist:
         assert len(jobs) == 2
         assert all(job.country == "United Kingdom" for job in jobs)
 
-    def test_all_gulf_countries_blocklisted_returns_empty_with_zero_requests(self) -> None:
+    def test_all_countries_excluded_returns_empty_with_zero_requests(self) -> None:
         session = MagicMock()
-        source = AdzunaSource(app_id="id", app_key="key", session=session)
+        source = AdzunaSource(
+            app_id="id",
+            app_key="key",
+            exclude_countries=("ae", "sa", "kw", "lb", "qa", "bh", "om"),
+            session=session,
+        )
 
-        jobs = source.fetch_jobs(
-            search_terms=("paid media",), countries=("ae", "sa", "kw", "lb", "qa", "bh", "om")
+        jobs = source.fetch_jobs(            search_terms=("paid media",), countries=("ae", "sa", "kw", "lb", "qa", "bh", "om")
         )
 
         assert jobs == []
+        session.request.assert_not_called()
+
+
+    def test_no_exclusions_configured_by_default_excludes_nothing(self) -> None:
+        # Default constructor call, no exclude_countries passed -
+        # confirms the mechanism is opt-in via injected config, not a
+        # hardcoded assumption baked into the source itself.
+        session = MagicMock()
+        session.request.return_value = _mock_response(VALID_RESPONSE)
+        source = AdzunaSource(app_id="id", app_key="key", session=session)
+
+        jobs = source.fetch_jobs(search_terms=("paid media",), countries=("ae",))
+
+        assert session.request.call_count == 1
+        assert len(jobs) == 2
+
+    def test_exclusion_matching_is_case_insensitive(self) -> None:
+        session = MagicMock()
+        session.request.return_value = _mock_response(VALID_RESPONSE)
+        source = AdzunaSource(
+            app_id="id", app_key="key", exclude_countries=("AE",), session=session
+        )
+
+        source.fetch_jobs(search_terms=("paid media",), countries=("ae",))
+
         session.request.assert_not_called()
 
 

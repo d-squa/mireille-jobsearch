@@ -37,6 +37,12 @@ class Job:
             Greenhouse and Lever never do; Jooble, Reed, Adzuna, and
             Ashby (with compensation enabled) do, when the employer
             chose to publish it.
+        work_mode: "Remote", "Hybrid", or "Onsite". Sourced directly
+            from structured API data where a source provides it (Lever,
+            Ashby); inferred via keyword matching over title/location/
+            description for sources that don't (Jooble, Reed, Adzuna,
+            Greenhouse). None if it can't be determined either way -
+            not defaulted to "Onsite" just because nothing matched.
     """
 
     company: str
@@ -48,6 +54,7 @@ class Job:
     posted_date: date | None
     description: str
     salary: str | None = None
+    work_mode: str | None = None
 
     def dedup_hash(self) -> str:
         """Stable hash used as the dedup key across daily runs.

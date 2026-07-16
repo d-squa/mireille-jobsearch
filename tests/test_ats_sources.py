@@ -72,6 +72,28 @@ class TestGreenhouseSource:
 
         assert all(job.salary is None for job in jobs)
 
+    def test_work_mode_inferred_from_location_text(self) -> None:
+        # Second fixture job's location is "Remote" - no structured
+        # field exists for Greenhouse, so this must come from text
+        # inference over location (checked alongside title/description).
+        session = _mock_session(GREENHOUSE_VALID_RESPONSE)
+        source = GreenhouseSource(targets=ACME_TARGETS, session=session)
+
+        jobs = source.fetch_jobs(search_terms=(), countries=())
+
+        assert jobs[1].location == "Remote"
+        assert jobs[1].work_mode == "Remote"
+
+    def test_work_mode_none_when_no_keyword_present(self) -> None:
+        session = _mock_session(GREENHOUSE_VALID_RESPONSE)
+        source = GreenhouseSource(targets=ACME_TARGETS, session=session)
+
+        jobs = source.fetch_jobs(search_terms=(), countries=())
+
+        # First fixture job: location "Dubai, UAE", no remote/hybrid/
+        # onsite keyword anywhere in title/location/description.
+        assert jobs[0].work_mode is None
+
     def test_empty_board_returns_empty_list(self) -> None:
         session = _mock_session(GREENHOUSE_EMPTY_RESPONSE)
         source = GreenhouseSource(targets=ACME_TARGETS, session=session)
@@ -171,6 +193,36 @@ class TestLeverSource:
 
         assert all(job.salary is None for job in jobs)
 
+    def test_work_mode_from_structured_workplace_type_field(self) -> None:
+        # Lever's real API provides workplaceType directly - fixture
+        # jobs are "hybrid" and "on-site" respectively.
+        session = _mock_session(LEVER_VALID_RESPONSE)
+        source = LeverSource(targets=ACME_TARGETS, session=session)
+
+        jobs = source.fetch_jobs(search_terms=(), countries=())
+
+        assert jobs[0].work_mode == "Hybrid"
+        assert jobs[1].work_mode == "Onsite"
+
+    def test_work_mode_falls_back_to_text_when_workplace_type_missing(self) -> None:
+        response = [
+            {
+                "id": "x",
+                "text": "Media Buyer - Remote",
+                "hostedUrl": "https://jobs.lever.co/acme/x",
+                "categories": {"location": "London"},
+                "createdAt": 1783036800000,
+                "descriptionPlain": "desc",
+                # No workplaceType field at all.
+            }
+        ]
+        session = _mock_session(response)
+        source = LeverSource(targets=ACME_TARGETS, session=session)
+
+        jobs = source.fetch_jobs(search_terms=(), countries=())
+
+        assert jobs[0].work_mode == "Remote"
+
 
 class TestAshbySource:
     def test_requires_at_least_one_target(self) -> None:
@@ -212,6 +264,62 @@ class TestAshbySource:
 
         args, _ = session.request.call_args
         assert "includeCompensation=true" in args[1]
+
+    def test_work_mode_from_structured_workplace_type_field(self) -> None:
+        # Ashby's real API provides workplaceType directly - fixture
+        # jobs are "OnSite" and "Remote" respectively.
+        session = _mock_session(ASHBY_VALID_RESPONSE)
+        source = AshbySource(targets=ACME_TARGETS, session=session)
+
+        jobs = source.fetch_jobs(search_terms=(), countries=())
+
+        assert jobs[0].work_mode == "Onsite"
+        assert jobs[1].work_mode == "Remote"
+
+    def test_work_mode_falls_back_to_is_remote_when_workplace_type_missing(self) -> None:
+        response = {
+            "apiVersion": "1",
+            "jobs": [
+                {
+                    "title": "Growth Marketer",
+                    "location": "Remote",
+                    "isRemote": True,
+                    # No workplaceType field at all.
+                    "descriptionPlain": "desc",
+                    "publishedAt": "2026-07-01T00:00:00.000+00:00",
+                    "jobUrl": "https://jobs.ashbyhq.com/acme/growth",
+                }
+            ],
+        }
+        session = _mock_session(response)
+        source = AshbySource(targets=ACME_TARGETS, session=session)
+
+        jobs = source.fetch_jobs(search_terms=(), countries=())
+
+        assert jobs[0].work_mode == "Remote"
+
+    def test_work_mode_falls_back_to_text_when_no_structured_data_at_all(self) -> None:
+        response = {
+            "apiVersion": "1",
+            "jobs": [
+                {
+                    "title": "Growth Marketer - Hybrid",
+                    "location": "Berlin",
+                    "isRemote": False,
+                    # No workplaceType, and isRemote=False doesn't tell
+                    # us Onsite vs Hybrid - must fall through to text.
+                    "descriptionPlain": "desc",
+                    "publishedAt": "2026-07-01T00:00:00.000+00:00",
+                    "jobUrl": "https://jobs.ashbyhq.com/acme/growth2",
+                }
+            ],
+        }
+        session = _mock_session(response)
+        source = AshbySource(targets=ACME_TARGETS, session=session)
+
+        jobs = source.fetch_jobs(search_terms=(), countries=())
+
+        assert jobs[0].work_mode == "Hybrid"
 
     def test_extracts_compensation_tier_summary_as_salary(self) -> None:
         session = _mock_session(ASHBY_VALID_RESPONSE)

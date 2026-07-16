@@ -21,6 +21,7 @@ from datetime import date, datetime
 
 import requests
 
+from core.work_mode import classify_work_mode
 from models.job import Job
 from sources.ats_watchlist import AtsTarget
 from sources.base import JobSource
@@ -31,6 +32,10 @@ logger = get_logger(__name__)
 
 _URL_TEMPLATE = "https://api.ashbyhq.com/posting-api/job-board/{job_board_name}"
 _TIMEOUT_SECONDS = 10
+
+# Ashby's real values, confirmed via their API - maps directly to our
+# three labels rather than needing text inference.
+_WORKPLACE_TYPE_MAP = {"remote": "Remote", "hybrid": "Hybrid", "onsite": "Onsite", "on-site": "Onsite"}
 
 
 class AshbySource(JobSource):
@@ -84,10 +89,27 @@ class AshbySource(JobSource):
                 posted_date=self._parse_date(raw_posting.get("publishedAt")),
                 description=(raw_posting.get("descriptionPlain") or "").strip(),
                 salary=self._extract_salary(raw_posting),
+                work_mode=self._extract_work_mode(raw_posting, title, location),
             )
         except Exception as exc:  # defensive: one bad record shouldn't break the batch
             logger.warning("Failed to normalize Ashby posting %r: %s", raw_posting, exc)
             return None
+
+    @staticmethod
+    def _extract_work_mode(raw_posting: dict, title: str, location: str) -> str | None:
+        """Ashby provides a real structured workplaceType field - use
+        it directly. Falls back to the isRemote boolean if
+        workplaceType is missing/unrecognized (isRemote True -> Remote;
+        False doesn't distinguish Onsite from Hybrid, so that case
+        falls through to keyword matching instead of guessing)."""
+        raw_type = (raw_posting.get("workplaceType") or "").strip().lower()
+        mapped = _WORKPLACE_TYPE_MAP.get(raw_type)
+        if mapped is not None:
+            return mapped
+        if raw_posting.get("isRemote") is True:
+            return "Remote"
+        description = raw_posting.get("descriptionPlain") or ""
+        return classify_work_mode(title, location, description)
 
     @staticmethod
     def _extract_salary(raw_posting: dict) -> str | None:

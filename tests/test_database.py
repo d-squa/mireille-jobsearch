@@ -91,6 +91,53 @@ class TestSchema:
         assert db.insert_lead(new_job, score=95) is True
         db.close()
 
+    def test_work_mode_migration_from_database_that_already_has_salary(self, tmp_path) -> None:
+        # The exact real-world state: a database that already went
+        # through the salary migration (has that column) but predates
+        # work_mode. Confirms the migration loop handles a database
+        # that's missing only ONE of the two columns, not just "zero
+        # columns" or "both columns".
+        db_path = tmp_path / "post_salary_legacy.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            CREATE TABLE leads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_hash TEXT NOT NULL UNIQUE,
+                score INTEGER NOT NULL,
+                company TEXT NOT NULL,
+                job_title TEXT NOT NULL,
+                salary TEXT,
+                location TEXT NOT NULL,
+                country TEXT NOT NULL,
+                source TEXT NOT NULL,
+                job_url TEXT NOT NULL,
+                posted_date TEXT,
+                found_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'New',
+                exported_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO leads (job_hash, score, company, job_title, salary, location, "
+            "country, source, job_url, found_at) VALUES "
+            "('def456', 90, 'Real Co', 'Real Title', '£50,000', 'Somewhere', 'Unknown', "
+            "'jooble', 'https://y.com', '2026-01-01T00:00:00')"
+        )
+        conn.commit()
+        conn.close()
+
+        db = Database(db_path)
+        db.initialize_schema()
+
+        cursor = db._conn.execute("SELECT * FROM leads WHERE job_hash = 'def456'")
+        row = cursor.fetchone()
+        assert row["company"] == "Real Co"  # pre-existing data survived
+        assert row["salary"] == "£50,000"  # pre-existing salary data survived
+        assert row["work_mode"] is None  # new column, backfilled as NULL
+        db.close()
+
 
 class TestJobsSeenDedup:
     def test_mark_seen_first_time_returns_true(self, db: Database) -> None:

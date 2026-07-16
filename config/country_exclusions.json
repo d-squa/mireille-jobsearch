@@ -1,0 +1,7 @@
+{
+  "_comment": "Country codes (ISO 3166-1 alpha-2, lowercase) to skip per source, because that source's API has confirmed it never returns results for that country (a 404 or empty-by-design response). Add a code here the moment you see it fail in the run log - no code changes needed, just edit this file and commit. Only sources that actually branch on country are listed: Jooble and Adzuna. Reed is UK-only and ignores country entirely; Greenhouse/Lever/Ashby don't take a country parameter at all.",
+
+  "adzuna": ["ae", "sa", "kw", "lb", "qa", "bh", "om"],
+
+  "jooble": []
+}

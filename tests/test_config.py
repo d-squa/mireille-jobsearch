@@ -125,6 +125,22 @@ def test_missing_service_account_file_raises_when_sheet_id_set(tmp_path, monkeyp
         _load_settings(str(env_path))
 
 
+def test_missing_country_exclusions_file_raises_when_set(tmp_path, monkeypatch):
+    monkeypatch.delenv("COUNTRY_EXCLUSIONS_FILE", raising=False)
+    env_path = _write_env(
+        tmp_path, {"COUNTRY_EXCLUSIONS_FILE": str(tmp_path / "does_not_exist.json")}
+    )
+    with pytest.raises(ConfigError, match="COUNTRY_EXCLUSIONS_FILE"):
+        _load_settings(str(env_path))
+
+
+def test_blank_country_exclusions_file_is_valid(tmp_path, monkeypatch):
+    monkeypatch.delenv("COUNTRY_EXCLUSIONS_FILE", raising=False)
+    env_path = _write_env(tmp_path, {"COUNTRY_EXCLUSIONS_FILE": ""})
+    settings = _load_settings(str(env_path))
+    assert settings.country_exclusions_file is None
+
+
 def test_missing_ats_watchlist_file_raises_when_set(tmp_path, monkeypatch):
     monkeypatch.delenv("ATS_WATCHLIST_FILE", raising=False)
     env_path = _write_env(

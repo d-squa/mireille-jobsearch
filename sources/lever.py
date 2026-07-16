@@ -22,6 +22,7 @@ from datetime import date, datetime, timezone
 
 import requests
 
+from core.work_mode import classify_work_mode
 from models.job import Job
 from sources.ats_watchlist import AtsTarget
 from sources.base import JobSource
@@ -32,6 +33,10 @@ logger = get_logger(__name__)
 
 _URL_TEMPLATE = "https://api.lever.co/v0/postings/{company}?mode=json"
 _TIMEOUT_SECONDS = 10
+
+# Lever's real values, confirmed via their API - maps directly to our
+# three labels rather than needing text inference.
+_WORKPLACE_TYPE_MAP = {"remote": "Remote", "hybrid": "Hybrid", "on-site": "Onsite", "onsite": "Onsite"}
 
 
 class LeverSource(JobSource):
@@ -89,10 +94,24 @@ class LeverSource(JobSource):
                 description=(raw_posting.get("descriptionPlain") or "").strip(),
                 # Lever's public Postings API doesn't expose salary/
                 # compensation data. Job.salary stays None here.
+                work_mode=self._extract_work_mode(raw_posting, title, location),
             )
         except Exception as exc:  # defensive: one bad record shouldn't break the batch
             logger.warning("Failed to normalize Lever posting %r: %s", raw_posting, exc)
             return None
+
+    @staticmethod
+    def _extract_work_mode(raw_posting: dict, title: str, location: str) -> str | None:
+        """Lever provides a real structured workplaceType field
+        ('on-site', 'remote', 'hybrid') - use it directly rather than
+        guessing from text. Falls back to keyword matching only if
+        that field is missing or an unrecognized value."""
+        raw_type = (raw_posting.get("workplaceType") or "").strip().lower()
+        mapped = _WORKPLACE_TYPE_MAP.get(raw_type)
+        if mapped is not None:
+            return mapped
+        description = raw_posting.get("descriptionPlain") or ""
+        return classify_work_mode(title, location, description)
 
     @staticmethod
     def _parse_created_at(raw_value: object) -> date | None:

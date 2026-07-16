@@ -21,6 +21,7 @@ from sources.adzuna import AdzunaSource
 from sources.ashby import AshbySource
 from sources.ats_watchlist import AtsWatchlistError, load_ats_watchlist
 from sources.base import JobSource
+from sources.country_exclusions import CountryExclusionsError, load_country_exclusions
 from sources.greenhouse import GreenhouseSource
 from sources.jooble import JoobleSource
 from sources.lever import LeverSource
@@ -39,14 +40,31 @@ def _build_sources(settings: Settings) -> list[JobSource]:
     Tier 2 ATS sources are optional on top of that.
     """
     sources: list[JobSource] = []
+
+    country_exclusions: dict[str, tuple[str, ...]] = {}
+    if settings.country_exclusions_file is not None:
+        try:
+            country_exclusions = load_country_exclusions(settings.country_exclusions_file)
+        except CountryExclusionsError as exc:
+            get_logger(__name__).error(
+                "Failed to load country exclusions, proceeding with none configured: %s", exc
+            )
+
     if settings.sources.jooble_enabled:
-        sources.append(JoobleSource(api_key=settings.sources.jooble_api_key))
+        sources.append(
+            JoobleSource(
+                api_key=settings.sources.jooble_api_key,
+                exclude_countries=country_exclusions.get("jooble", ()),
+            )
+        )
     if settings.sources.reed_enabled:
         sources.append(ReedSource(api_key=settings.sources.reed_api_key))
     if settings.sources.adzuna_enabled:
         sources.append(
             AdzunaSource(
-                app_id=settings.sources.adzuna_app_id, app_key=settings.sources.adzuna_app_key
+                app_id=settings.sources.adzuna_app_id,
+                app_key=settings.sources.adzuna_app_key,
+                exclude_countries=country_exclusions.get("adzuna", ()),
             )
         )
 

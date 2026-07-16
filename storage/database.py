@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS leads (
     company TEXT NOT NULL,
     job_title TEXT NOT NULL,
     salary TEXT,
+    work_mode TEXT,
     location TEXT NOT NULL,
     country TEXT NOT NULL,
     source TEXT NOT NULL,
@@ -89,26 +90,27 @@ class Database:
         pending lightweight migrations. Safe to call every run."""
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
-        self._migrate_add_salary_column()
+        self._migrate_add_columns()
 
-    def _migrate_add_salary_column(self) -> None:
-        """Add the salary column to an existing leads table that
-        predates it.
+    def _migrate_add_columns(self) -> None:
+        """Add the salary and work_mode columns to an existing leads
+        table that predates them.
 
         CREATE TABLE IF NOT EXISTS is a no-op on a table that already
         exists, so a schema change alone doesn't reach databases
-        created before this column existed - including the one
+        created before these columns existed - including the one
         already committed to the repo with real leads in it. This
         makes the migration self-healing: harmless on a fresh database
-        (the column is already there, so this just hits "duplicate
+        (columns are already there, so this just hits "duplicate
         column name" and is ignored) and effective on an existing one.
         """
-        try:
-            self._conn.execute("ALTER TABLE leads ADD COLUMN salary TEXT")
-            self._conn.commit()
-        except sqlite3.OperationalError as exc:
-            if "duplicate column name" not in str(exc).lower():
-                raise
+        for column in ("salary", "work_mode"):
+            try:
+                self._conn.execute(f"ALTER TABLE leads ADD COLUMN {column} TEXT")
+                self._conn.commit()
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
 
     # --- jobs_seen (dedup ledger) -------------------------------------
 
@@ -146,9 +148,9 @@ class Database:
         cursor = self._conn.execute(
             """
             INSERT OR IGNORE INTO leads (
-                job_hash, score, company, job_title, salary, location, country,
+                job_hash, score, company, job_title, salary, work_mode, location, country,
                 source, job_url, posted_date, found_at, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New')
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New')
             """,
             (
                 job.dedup_hash(),
@@ -156,6 +158,7 @@ class Database:
                 job.company,
                 job.job_title,
                 job.salary,
+                job.work_mode,
                 job.location,
                 job.country,
                 job.source,

@@ -17,6 +17,7 @@ from datetime import date
 
 import requests
 
+from core.work_mode import classify_work_mode
 from exceptions import SourceError
 from models.job import Job
 from sources.base import JobSource
@@ -35,10 +36,16 @@ class JoobleSource(JobSource):
 
     name = "jooble"
 
-    def __init__(self, api_key: str, session: requests.Session | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        exclude_countries: tuple[str, ...] = (),
+        session: requests.Session | None = None,
+    ) -> None:
         if not api_key:
             raise ValueError("JoobleSource requires a non-empty api_key")
         self._api_key = api_key
+        self._exclude_countries = frozenset(c.lower() for c in exclude_countries)
         self._session = session or requests.Session()
         self._url = _BASE_URL.format(api_key=api_key)
 
@@ -49,10 +56,23 @@ class JoobleSource(JobSource):
         as a single search, so all search_terms are sent together in
         one request per country rather than one request per term - this
         keeps request volume low against the free-tier quota.
+
+        Countries in self._exclude_countries (from
+        config/country_exclusions.json) are skipped before any request.
+        Jooble doesn't currently reject any country (its location field
+        is free text, not validated), so this is a no-op unless that
+        ever changes or a specific location proves not worth searching -
+        kept for interface consistency with Adzuna, and so a future
+        problem country needs only a config edit, not a code change.
         """
         keywords = ", ".join(search_terms)
         # If no countries are configured, do a single unscoped search.
         locations: tuple[str, ...] = countries or ("",)
+
+        skipped = tuple(loc for loc in locations if loc.lower() in self._exclude_countries)
+        locations = tuple(loc for loc in locations if loc.lower() not in self._exclude_countries)
+        if skipped:
+            logger.info("Jooble: skipping configured country exclusion(s): %s", ", ".join(skipped))
 
         jobs: list[Job] = []
         for location in locations:
@@ -90,16 +110,22 @@ class JoobleSource(JobSource):
                 logger.warning("Skipping Jooble job missing required fields: %r", raw_job)
                 return None
 
+            location = (raw_job.get("location") or "").strip()
+            description = (raw_job.get("snippet") or "").strip()
+
             return Job(
                 company=company,
                 job_title=title,
-                location=(raw_job.get("location") or "").strip(),
+                location=location,
                 country="Unknown",  # resolved later by core/location parsing
                 source=self.name,
                 job_url=job_url,
                 posted_date=self._parse_date(raw_job.get("updated")),
-                description=(raw_job.get("snippet") or "").strip(),
+                description=description,
                 salary=(raw_job.get("salary") or "").strip() or None,
+                # Jooble has no structured work-mode field - inferred
+                # from title/location/description text.
+                work_mode=classify_work_mode(title, location, description),
             )
         except Exception as exc:  # defensive: never let one bad record break the batch
             logger.warning("Failed to normalize Jooble job %r: %s", raw_job, exc)

@@ -23,6 +23,7 @@ from datetime import date, datetime
 
 import requests
 
+from core.work_mode import classify_work_mode
 from models.job import Job
 from sources.base import JobSource
 from sources.http_utils import fetch_json_with_retry
@@ -82,16 +83,22 @@ class ReedSource(JobSource):
                 logger.warning("Skipping Reed job missing required fields: %r", raw_job)
                 return None
 
+            location = (raw_job.get("locationName") or "").strip()
+            description = (raw_job.get("jobDescription") or "").strip()
+
             return Job(
                 company=company,
                 job_title=title,
-                location=(raw_job.get("locationName") or "").strip(),
+                location=location,
                 country="United Kingdom",  # Reed is UK-only, unlike Unknown for global sources
                 source=self.name,
                 job_url=job_url,
                 posted_date=self._parse_date(raw_job.get("date")),
-                description=(raw_job.get("jobDescription") or "").strip(),
+                description=description,
                 salary=self._format_salary(raw_job.get("minimumSalary"), raw_job.get("maximumSalary")),
+                # Reed has no structured work-mode field - inferred
+                # from title/location/description text.
+                work_mode=classify_work_mode(title, location, description),
             )
         except Exception as exc:  # defensive: one bad record shouldn't break the batch
             logger.warning("Failed to normalize Reed job %r: %s", raw_job, exc)

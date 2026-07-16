@@ -94,6 +94,36 @@ class TestFetchJobs:
     def test_parses_uk_date_format(self) -> None:
         assert ReedSource._parse_date("10/07/2026") == date(2026, 7, 10)
 
+    def test_work_mode_inferred_from_job_title(self) -> None:
+        response = {
+            "results": [
+                {
+                    "jobId": 1,
+                    "employerName": "Acme Co",
+                    "jobTitle": "Paid Media Manager (Hybrid)",
+                    "locationName": "Manchester",
+                    "jobDescription": "desc",
+                    "date": "10/07/2026",
+                    "jobUrl": "https://reed.co.uk/jobs/1",
+                }
+            ],
+            "totalResults": 1,
+        }
+        session = _mock_session(response)
+        source = ReedSource(api_key="test-key", session=session)
+
+        jobs = source.fetch_jobs(search_terms=("paid media",), countries=())
+
+        assert jobs[0].work_mode == "Hybrid"
+
+    def test_work_mode_none_when_no_keyword_present(self) -> None:
+        session = _mock_session(VALID_RESPONSE)
+        source = ReedSource(api_key="test-key", session=session)
+
+        jobs = source.fetch_jobs(search_terms=("paid media",), countries=())
+
+        assert jobs[0].work_mode is None
+
 
 class TestSalaryFormatting:
     def test_min_and_max_present(self) -> None:

@@ -10,14 +10,17 @@ Implements JobSource against Adzuna's REST API:
 
 Unlike Jooble's location (free text) or Reed (no country param at
 all), Adzuna's country is a required URL path segment validated
-against a fixed list of ~20 supported countries (mainly US/UK/EU/
-Australia/Canada/India - notably NOT Gulf/MENA, confirmed during
-Milestone 2 research). Querying an unsupported country returns a real
-HTTP 404. Each (search_term, country) pair is requested and error-
-isolated independently here, so one unsupported country in
-SEARCH_COUNTRIES doesn't abort results from the countries that do
-work - this matters in practice since the default config includes
-"ae", which Adzuna doesn't support.
+against a fixed list of supported countries. Querying an unsupported
+country returns a real HTTP 404. Each (search_term, country) pair is
+requested and error-isolated independently here, so one unsupported
+country doesn't abort results from the countries that do work.
+
+Countries known in advance to always fail are configured externally
+in config/country_exclusions.json (not hardcoded here) and injected
+via the exclude_countries constructor param - see
+sources/country_exclusions.py. Skipping those before attempting a
+request avoids wasting the retry/backoff delay in http_utils on a
+request that will never succeed.
 
 Reference: https://developer.adzuna.com/docs/search
 """
@@ -27,6 +30,7 @@ from datetime import date, datetime
 
 import requests
 
+from core.work_mode import classify_work_mode
 from exceptions import SourceError
 from models.job import Job
 from sources.base import JobSource
@@ -54,52 +58,45 @@ _COUNTRY_NAMES = {
     "in": "India",
 }
 
-# Countries confirmed (via repeated live 404s, plus cross-checking
-# several independent third-party sources describing Adzuna's country
-# coverage) to never be supported. Deliberately a small, high-confidence
-# BLOCKLIST rather than a big "known good" ALLOWLIST - sources disagree
-# on Adzuna's exact total country count (seen figures from 12 to 19),
-# so hardcoding a full allowlist risks wrongly excluding a country that
-# actually works. This list only contains countries no source has ever
-# listed as supported: the GCC/Gulf market. Skipping these before
-# attempting a request avoids wasting the retry/backoff delay in
-# http_utils on a request that will never succeed - each unsupported
-# (term, country) pair was costing up to ~6s in retries before this.
-_KNOWN_UNSUPPORTED_COUNTRIES = frozenset({"ae", "sa", "kw", "lb", "qa", "bh", "om"})
-
 
 class AdzunaSource(JobSource):
     """Discovery source backed by the Adzuna job search API."""
 
     name = "adzuna"
 
-    def __init__(self, app_id: str, app_key: str, session: requests.Session | None = None) -> None:
+    def __init__(
+        self,
+        app_id: str,
+        app_key: str,
+        exclude_countries: tuple[str, ...] = (),
+        session: requests.Session | None = None,
+    ) -> None:
         if not app_id or not app_key:
             raise ValueError("AdzunaSource requires non-empty app_id and app_key")
         self._app_id = app_id
         self._app_key = app_key
+        self._exclude_countries = frozenset(c.lower() for c in exclude_countries)
         self._session = session or requests.Session()
 
     def fetch_jobs(self, search_terms: tuple[str, ...], countries: tuple[str, ...]) -> list[Job]:
         """Fetch jobs for every (search_term, country) combination.
 
-        Countries in _KNOWN_UNSUPPORTED_COUNTRIES are skipped before
-        any request is attempted - see that constant's docstring for
-        why. Any OTHER unsupported country (one we haven't hardcoded)
-        still gets a real attempt and is caught per-pair if it 404s -
-        the blocklist is a fast-path optimization, not the only safety
-        net.
+        Countries in self._exclude_countries (from
+        config/country_exclusions.json) are skipped before any request
+        is attempted. Any OTHER unsupported country - one not in that
+        config - still gets a real attempt and is caught per-pair if
+        it 404s; the exclusion list is a fast-path optimization, not
+        the only safety net.
         """
         if not countries:
             logger.warning("AdzunaSource requires at least one country; defaulting to 'gb'")
             countries = ("gb",)
 
-        skipped = tuple(c for c in countries if c in _KNOWN_UNSUPPORTED_COUNTRIES)
-        supported = tuple(c for c in countries if c not in _KNOWN_UNSUPPORTED_COUNTRIES)
+        skipped = tuple(c for c in countries if c.lower() in self._exclude_countries)
+        supported = tuple(c for c in countries if c.lower() not in self._exclude_countries)
         if skipped:
             logger.info(
-                "Adzuna: skipping known-unsupported countries (no Gulf/MENA coverage): %s",
-                ", ".join(skipped),
+                "Adzuna: skipping configured country exclusion(s): %s", ", ".join(skipped)
             )
         if not supported:
             return []
@@ -149,6 +146,8 @@ class AdzunaSource(JobSource):
 
             location = ((raw_job.get("location") or {}).get("display_name") or "").strip()
 
+            description = (raw_job.get("description") or "").strip()
+
             return Job(
                 company=company,
                 job_title=title,
@@ -157,8 +156,11 @@ class AdzunaSource(JobSource):
                 source=self.name,
                 job_url=job_url,
                 posted_date=self._parse_date(raw_job.get("created")),
-                description=(raw_job.get("description") or "").strip(),
+                description=description,
                 salary=self._format_salary(raw_job.get("salary_min"), raw_job.get("salary_max")),
+                # Adzuna has no structured work-mode field - inferred
+                # from title/location/description text.
+                work_mode=classify_work_mode(title, location, description),
             )
         except Exception as exc:  # defensive: one bad record shouldn't break the batch
             logger.warning("Failed to normalize Adzuna job %r: %s", raw_job, exc)

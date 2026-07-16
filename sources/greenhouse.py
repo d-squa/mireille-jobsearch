@@ -22,6 +22,7 @@ from datetime import date, datetime
 
 import requests
 
+from core.work_mode import classify_work_mode
 from models.job import Job
 from sources.ats_watchlist import AtsTarget
 from sources.base import JobSource
@@ -85,6 +86,8 @@ class GreenhouseSource(JobSource):
             location = ((raw_job.get("location") or {}).get("name") or "").strip()
             raw_description = raw_job.get("content") or ""
 
+            description = _strip_html(raw_description)
+
             return Job(
                 company=company_name,
                 job_title=title,
@@ -93,10 +96,13 @@ class GreenhouseSource(JobSource):
                 source=self.name,
                 job_url=job_url,
                 posted_date=self._parse_date(raw_job.get("updated_at")),
-                description=_strip_html(raw_description),
+                description=description,
                 # Greenhouse's public Job Board API never exposes salary
                 # data, regardless of query params - unlike Ashby, there's
                 # no opt-in flag for it. Job.salary stays None here.
+                # No structured work-mode field either - inferred from
+                # title/location/description text.
+                work_mode=classify_work_mode(title, location, description),
             )
         except Exception as exc:  # defensive: one bad record shouldn't break the batch
             logger.warning("Failed to normalize Greenhouse job %r: %s", raw_job, exc)
