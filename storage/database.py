@@ -235,6 +235,44 @@ class Database:
         cursor = self._conn.execute("SELECT * FROM companies WHERE name = ?", (name,))
         return cursor.fetchone()
 
+    # --- destructive operations --------------------------------------------
+
+    def clear_all_data(self) -> dict[str, int]:
+        """Delete every row from companies, jobs_seen, and leads, while
+        keeping the schema (and any pending migrations) intact.
+
+        Irreversible: this is the "start completely over" operation.
+        After this, every job every source returns on the next run is
+        treated as brand new - none of it will show up as a duplicate,
+        even jobs seen many times before. This does NOT touch the
+        Google Sheet, so a fresh run will very likely re-send leads
+        that already exist there as new rows, unless the sheet's data
+        is also cleared separately.
+
+        Returns a dict of table name -> number of rows deleted, so the
+        caller can log exactly what was removed before it's gone.
+        """
+        counts: dict[str, int] = {}
+        for table in ("leads", "jobs_seen", "companies"):
+            cursor = self._conn.execute(f"SELECT COUNT(*) as cnt FROM {table}")
+            counts[table] = cursor.fetchone()["cnt"]
+            self._conn.execute(f"DELETE FROM {table}")
+        self._conn.commit()
+        # Reset SQLite's autoincrement counters too, so a fresh start
+        # really starts IDs from 1 rather than continuing from before.
+        # sqlite_sequence only exists once an AUTOINCREMENT table has
+        # had at least one row ever inserted - guard against a
+        # completely fresh database where it was never created.
+        try:
+            self._conn.execute(
+                "DELETE FROM sqlite_sequence WHERE name IN ('leads', 'companies')"
+            )
+            self._conn.commit()
+        except sqlite3.OperationalError as exc:
+            if "no such table: sqlite_sequence" not in str(exc).lower():
+                raise
+        return counts
+
     # --- lifecycle ----------------------------------------------------------
 
     def close(self) -> None:

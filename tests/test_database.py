@@ -280,3 +280,80 @@ class TestCompanies:
 
     def test_get_company_returns_none_when_missing(self, db: Database) -> None:
         assert db.get_company("Nonexistent Co") is None
+
+
+class TestClearAllData:
+    def test_deletes_all_leads(self, db: Database) -> None:
+        job = _sample_job()
+        db.mark_seen(job)
+        db.insert_lead(job, score=90)
+
+        db.clear_all_data()
+
+        assert db.get_unexported_leads() == []
+
+    def test_deletes_all_jobs_seen(self, db: Database) -> None:
+        job = _sample_job()
+        db.mark_seen(job)
+
+        db.clear_all_data()
+
+        assert db.has_seen(job.dedup_hash()) is False
+
+    def test_deletes_all_companies(self, db: Database) -> None:
+        company = Company(
+            name="Acme Real Estate", discovered_via="jooble", discovered_at=datetime(2026, 7, 1)
+        )
+        db.upsert_company(company)
+
+        db.clear_all_data()
+
+        assert db.get_company("Acme Real Estate") is None
+
+    def test_returns_accurate_counts_of_deleted_rows(self, db: Database) -> None:
+        job_a = _sample_job(job_title="Paid Media Manager", job_url="https://x.com/1")
+        job_b = _sample_job(job_title="Media Buyer", job_url="https://x.com/2")
+        for job in (job_a, job_b):
+            db.mark_seen(job)
+            db.insert_lead(job, score=90)
+        company = Company(
+            name="Acme Real Estate", discovered_via="jooble", discovered_at=datetime(2026, 7, 1)
+        )
+        db.upsert_company(company)
+
+        counts = db.clear_all_data()
+
+        assert counts == {"leads": 2, "jobs_seen": 2, "companies": 1}
+
+    def test_empty_database_clears_without_error(self, db: Database) -> None:
+        # Fresh database, nothing to delete, and sqlite_sequence
+        # doesn't even exist yet - must not raise.
+        counts = db.clear_all_data()
+        assert counts == {"leads": 0, "jobs_seen": 0, "companies": 0}
+
+    def test_schema_survives_clearing(self, db: Database) -> None:
+        job = _sample_job()
+        db.mark_seen(job)
+        db.insert_lead(job, score=90)
+
+        db.clear_all_data()
+
+        # The tables themselves must still exist and be usable
+        # afterward - this clears data, not the schema.
+        new_job = _sample_job(job_url="https://x.com/fresh")
+        db.mark_seen(new_job)
+        assert db.insert_lead(new_job, score=100) is True
+
+    def test_autoincrement_ids_reset_after_clearing(self, db: Database) -> None:
+        job_a = _sample_job(job_url="https://x.com/1")
+        db.mark_seen(job_a)
+        db.insert_lead(job_a, score=90)
+
+        db.clear_all_data()
+
+        job_b = _sample_job(job_url="https://x.com/2")
+        db.mark_seen(job_b)
+        db.insert_lead(job_b, score=90)
+
+        cursor = db._conn.execute("SELECT id FROM leads WHERE job_hash = ?", (job_b.dedup_hash(),))
+        assert cursor.fetchone()["id"] == 1

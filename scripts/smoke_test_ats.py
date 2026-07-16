@@ -9,6 +9,12 @@ locally to confirm the connectors work against live data:
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
 from config import get_settings
 from sources.ashby import AshbySource
 from sources.ats_watchlist import load_ats_watchlist

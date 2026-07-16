@@ -83,6 +83,24 @@ The next run (scheduled or manually triggered) picks up the change
 automatically - no need to touch the workflow files in `.github/workflows/`
 at all. Those only handle secrets and orchestration now.
 
+## Wiping the database completely
+
+If you need a truly fresh start (all leads, all dedup history, all
+discovered companies - permanently gone), use **Actions → Clear
+Database → Run workflow**. This requires typing `CONFIRM` (exact case)
+into the confirmation field - anything else aborts with nothing
+deleted.
+
+**This does not touch the Google Sheet.** The next run will treat
+every job every source returns as brand new, which will very likely
+re-send leads that already exist as rows in your sheet. If you want a
+fully synced fresh start, also clear the sheet's data rows (keep the
+header) around the same time.
+
+This is different from **Reset Export Status**: that only resets the
+"has this been sent to Sheets" flag and loses nothing real. Clear
+Database is the destructive, irreversible one.
+
 ## Recovering from a manually-cleared Google Sheet
 
 If you delete rows from the sheet directly, the pipeline won't
