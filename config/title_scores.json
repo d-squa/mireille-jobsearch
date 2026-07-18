@@ -1,20 +1,67 @@
 {
-  "_comment": "Canonical job titles mapped to lead scores (0-100). Edit freely - no code changes needed. Jobs whose best fuzzy match scores below MIN_SCORE (see .env) are discarded.",
+  "_comment": "Canonical Food Science job titles mapped to lead scores (0-100). Higher scores represent stronger alignment with entry-level Food Science, Food Technology, QA/QC, R&D, and Food Safety roles.",
 
-  "Paid Media Manager": 100,
-  "Performance Marketing Manager": 95,
-  "Media Buyer": 90,
-  "PPC Manager": 88,
-  "Paid Social Manager": 88,
-  "Media Planner": 85,
-  "Paid Media Executive": 85,
-  "Performance Marketing Executive": 82,
-  "Paid Social Specialist": 80,
-  "PPC Specialist": 78,
+  "Food Scientist": 100,
+  "Junior Food Scientist": 100,
+  "Graduate Food Scientist": 98,
+  "Food Technologist": 98,
+  "Junior Food Technologist": 96,
+  "Graduate Food Technologist": 95,
 
-  "Campaign Manager": 70,
-  "Growth Marketing Manager": 65,
-  "Digital Marketing Manager": 60,
-  "Acquisition Manager": 55,
-  "SEM Specialist": 50
+  "R&D Assistant": 95,
+  "Research Assistant (Food)": 94,
+  "Product Development Assistant": 93,
+  "Test Kitchen Assistant": 90,
+
+  "QA Technician": 92,
+  "Quality Assurance Technician": 92,
+  "QA Assistant": 90,
+  "Quality Assurance Assistant": 90,
+
+  "QC Technician": 90,
+  "Quality Control Technician": 90,
+  "Quality Control Assistant": 88,
+
+  "Food Safety Technician": 90,
+  "Food Safety Assistant": 88,
+  "Food Safety Coordinator": 86,
+  "HACCP Assistant": 85,
+
+  "Laboratory Technician": 88,
+  "Food Laboratory Technician": 90,
+  "Microbiology Technician": 87,
+  "Microbiology Lab Technician": 87,
+  "Chemistry Lab Technician": 85,
+  "Analytical Technician": 84,
+
+  "Regulatory Affairs Assistant": 82,
+  "Label Compliance Assistant": 80,
+  "Compliance Assistant": 78,
+  "Documentation Specialist": 72,
+
+  "Production Technician": 82,
+  "Process Technician": 80,
+  "Manufacturing Associate": 75,
+  "Production Planner Assistant": 72,
+  "Production Supervisor Trainee": 74,
+
+  "Packaging Technician": 80,
+  "Packaging Technologist Assistant": 82,
+  "Packaging Development Technician": 84,
+
+  "Sensory Technician": 82,
+  "Consumer Testing Assistant": 80,
+  "Product Evaluation Assistant": 80,
+
+  "Ingredient Sourcing Assistant": 72,
+  "Procurement Coordinator": 65,
+  "Raw Materials Coordinator": 74,
+
+  "Technical Sales Representative (Food)": 68,
+  "Application Specialist (Food)": 72,
+  "Customer Technical Support (Food)": 65,
+
+  "Food Inspector Trainee": 84,
+  "Agricultural Inspector": 76,
+  "Public Health Laboratory Assistant": 80
 }
